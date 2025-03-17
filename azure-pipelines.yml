@@ -1,0 +1,58 @@
+trigger:
+- mains
+resources:
+  repositories:
+  - repository: frst-helmchart   
+    type: git               
+    name: frontiersoftware/frst-helmchart  
+    ref: refs/heads/main    
+
+pool:
+  vmImage: ubuntu-latest
+stages:
+  - stage: DeployRelease
+    jobs:
+      - job: AngularApp
+        steps:
+        - checkout: frst-helmchart
+        - task: AzureCLI@2
+          inputs:
+            azureSubscription: 'frst-demo'
+            scriptType: 'bash'
+            scriptLocation: 'inlineScript'
+            inlineScript: |
+              namespace="frst"
+              az aks get-credentials -n "frst-dev-aue-aks" -g "frst-dev-aue-aks-rg" --overwrite-existing --admin      
+              # Check and create namespace if not exists
+              if ! kubectl get ns $namespace >/dev/null 2>&1; then
+                echo "Namespace 'frst' does not exist. Creating..."
+                kubectl create ns $namespace
+              else
+                echo "Namespace $namespace already exists."
+              fi              
+              helm upgrade --install  frst $(Build.SourcesDirectory) --namespace $namespace
+            addSpnToEnvironment: true
+          displayName: Helm Deploy
+  - stage: Monitoring
+    jobs:
+      - job: GrafanaPrometheus
+        steps:
+
+        - task: AzureCLI@2
+          inputs:
+            azureSubscription: 'frst-demo'
+            scriptType: 'bash'
+            scriptLocation: 'inlineScript'
+            inlineScript: |
+              namespace="monitoring"
+              az aks get-credentials -n "frst-dev-aue-aks" -g "frst-dev-aue-aks-rg" --overwrite-existing --admin      
+              helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+              helm repo add grafana https://grafana.github.io/helm-charts 
+              helm repo update             
+              helm install prometheus prometheus-community/kube-prometheus-stack --namespace monitoring --create-namespace --set grafana.service.type=LoadBalancer
+            addSpnToEnvironment: true
+          displayName: Helm Deploy
+
+
+
+
